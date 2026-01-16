@@ -3,18 +3,17 @@ import Redis from 'ioredis';
 import { logger } from './logger.util';
 
 export interface RateLimitStoreOptions {
-  prefix: string;
   expiry: number;
 }
 
 export class RedisStore implements Store {
   private redis: Redis;
-  private prefix: string;
+  public prefix: string;
   private expiry: number;
 
-  constructor(redis: Redis, options: RateLimitStoreOptions) {
+  constructor(prefix: string, redis: Redis, options: RateLimitStoreOptions) {
+    this.prefix = prefix;
     this.redis = redis;
-    this.prefix = options.prefix;
     this.expiry = options.expiry;
   }
 
