@@ -1,0 +1,25 @@
+# fly.toml
+app = "buffer-worker"
+primary_region = "iad"
+
+[build]
+  builder = "heroku/buildpacks:20"
+
+[env]
+  NODE_ENV = "production"
+
+[processes]
+  worker = "npm run start:worker"
+
+[[services]]
+  processes = ["worker"]
+  protocol = "tcp"
+  internal_port = 8080
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
