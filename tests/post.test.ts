@@ -1,4 +1,3 @@
-// tests/post.test.ts
 import request from 'supertest';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
@@ -148,6 +147,49 @@ describe('Post API', () => {
 
       await request(app).post('/api/v1/posts').send(postData).expect(401);
     });
+
+    // NEW: Timezone-aware tests
+    it('should accept ISO 8601 string with timezone offset', async () => {
+      // User in New York schedules for 3 PM their time
+      const nyTime = new Date(Date.now() + 60000);
+      const nyTimeString = nyTime.toISOString().replace('Z', '-05:00');
+      
+      const postData = {
+        content: 'Timezone test post',
+        platform: PostPlatform.TWITTER,
+        scheduledAt: nyTimeString,
+      };
+
+      const response = await request(app)
+        .post('/api/v1/posts')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(postData)
+        .expect(201);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.status).toBe(PostStatus.SCHEDULED);
+      // Verify it was stored (database should store UTC)
+      expect(response.body.data.scheduledAt).toBeDefined();
+    });
+
+    it('should handle Date objects in scheduledAt', async () => {
+      const futureDate = new Date(Date.now() + 60000);
+      
+      const postData = {
+        content: 'Date object test',
+        platform: PostPlatform.TWITTER,
+        scheduledAt: futureDate,
+      };
+
+      const response = await request(app)
+        .post('/api/v1/posts')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(postData)
+        .expect(201);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.status).toBe(PostStatus.SCHEDULED);
+    });
   });
 
   describe('GET /api/v1/posts', () => {
@@ -265,6 +307,25 @@ describe('Post API', () => {
         .expect(409);
 
       expect(response.body.success).toBe(false);
+    });
+
+    // NEW: Rescheduling tests
+    it('should reschedule a post successfully', async () => {
+      const futureTime = new Date(Date.now() + 120000); // 2 minutes ahead
+      
+      const updateData = {
+        scheduledAt: futureTime.toISOString(),
+      };
+
+      const response = await request(app)
+        .put(`/api/v1/posts/${postId}`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send(updateData)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.status).toBe(PostStatus.SCHEDULED);
+      expect(response.body.data.scheduledAt).toBeDefined();
     });
   });
 

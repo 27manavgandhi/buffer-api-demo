@@ -10,31 +10,54 @@ import {
 } from '../types/post.types';
 import { BadRequestError, NotFoundError, ConflictError } from '../utils/errors.util';
 import { logger } from '../utils/logger.util';
+import {
+  isFutureTime,
+  calculateDelay,
+  normalizeToUtc,
+  nowUtc,
+} from '../utils/timezone.util';
 
 export class PostService {
+  /** 
+   * @param userId - User creating the post
+   * @param data - Post creation data
+   * @param requestId - Request ID for logging
+   * @returns Created post response
+   */
   async createPost(
     userId: string,
     data: CreatePostDTO,
     requestId: string
   ): Promise<PostResponse> {
+    
     if (data.scheduledAt) {
-      const scheduledTime = new Date(data.scheduledAt);
-      if (scheduledTime <= new Date()) {
+      const scheduledUtc = normalizeToUtc(data.scheduledAt);
+      
+      if (!scheduledUtc) {
+        throw new BadRequestError('Invalid scheduled time format');
+      }
+
+      
+      if (!isFutureTime(scheduledUtc)) {
         throw new BadRequestError('Scheduled time must be in the future');
       }
     }
 
+    
     const post = await Post.create({
       userId,
       content: data.content,
       platform: data.platform,
       status: data.scheduledAt ? PostStatus.SCHEDULED : PostStatus.DRAFT,
-      scheduledAt: data.scheduledAt,
+      scheduledAt: data.scheduledAt ? normalizeToUtc(data.scheduledAt) : undefined,
     });
 
-    if (data.scheduledAt) {
+    
+    if (data.scheduledAt && post.scheduledAt) {
       try {
-        const delay = new Date(data.scheduledAt).getTime() - Date.now();
+        
+        const delay = calculateDelay(post.scheduledAt.toISOString());
+        
         const jobData: JobData = {
           postId: post._id.toString(),
           userId,
@@ -46,13 +69,16 @@ export class PostService {
         post.jobId = job.id?.toString();
         await post.save();
 
-        logger.info('Post scheduled', {
+        logger.info('Post scheduled successfully', {
           requestId,
           postId: post._id.toString(),
-          scheduledAt: data.scheduledAt,
+          scheduledAt: post.scheduledAt,
+          scheduledAtUtc: post.scheduledAt.toISOString(),
+          delayMs: delay,
           jobId: job.id,
         });
       } catch (error) {
+        
         await Post.findByIdAndDelete(post._id);
         logger.error('Failed to schedule post, rolling back', {
           requestId,
@@ -70,6 +96,11 @@ export class PostService {
     return this.toPostResponse(post);
   }
 
+  /**
+   * @param postId - Post ID
+   * @param userId - User requesting the post
+   * @returns Post response
+   */
   async getPost(postId: string, userId: string): Promise<PostResponse> {
     const post = await Post.findOne({ _id: postId, userId });
 
@@ -80,6 +111,12 @@ export class PostService {
     return this.toPostResponse(post);
   }
 
+  /**
+   * @param userId - User ID
+   * @param page - Page number (1-indexed)
+   * @param limit - Posts per page
+   * @returns Paginated posts
+   */
   async getUserPosts(
     userId: string,
     page = 1,
@@ -100,6 +137,13 @@ export class PostService {
     };
   }
 
+  /** 
+   * @param postId - Post ID to update
+   * @param userId - User updating the post
+   * @param data - Update data
+   * @param requestId - Request ID for logging
+   * @returns Updated post response
+   */
   async updatePost(
     postId: string,
     userId: string,
@@ -112,13 +156,21 @@ export class PostService {
       throw new NotFoundError('Post not found');
     }
 
+    
     if (post.status === PostStatus.PUBLISHED) {
       throw new ConflictError('Cannot update published post');
     }
 
+    
     if (data.scheduledAt) {
-      const scheduledTime = new Date(data.scheduledAt);
-      if (scheduledTime <= new Date()) {
+      const scheduledUtc = normalizeToUtc(data.scheduledAt);
+      
+      if (!scheduledUtc) {
+        throw new BadRequestError('Invalid scheduled time format');
+      }
+
+      
+      if (!isFutureTime(scheduledUtc)) {
         throw new BadRequestError('Scheduled time must be in the future');
       }
     }
@@ -126,19 +178,31 @@ export class PostService {
     const wasScheduled = post.status === PostStatus.SCHEDULED;
     const willBeScheduled = data.scheduledAt !== undefined;
 
+    
     if (wasScheduled && post.jobId) {
       await queueService.removeJob(post.jobId);
       post.jobId = undefined;
+      
+      logger.info('Removed old scheduled job', {
+        requestId,
+        postId,
+        oldJobId: post.jobId,
+      });
     }
 
+    
     if (data.content !== undefined) post.content = data.content;
     if (data.platform !== undefined) post.platform = data.platform;
 
+    
     if (willBeScheduled && data.scheduledAt) {
-      post.scheduledAt = data.scheduledAt;
+      const scheduledUtc = normalizeToUtc(data.scheduledAt)!;
+      post.scheduledAt = new Date(scheduledUtc);
       post.status = PostStatus.SCHEDULED;
 
-      const delay = new Date(data.scheduledAt).getTime() - Date.now();
+      
+      const delay = calculateDelay(scheduledUtc);
+      
       const jobData: JobData = {
         postId: post._id.toString(),
         userId,
@@ -149,13 +213,15 @@ export class PostService {
       const job = await queueService.addJob(jobData, delay);
       post.jobId = job.id?.toString();
 
-      logger.info('Post rescheduled', {
+      logger.info('Post rescheduled successfully', {
         requestId,
         postId: post._id.toString(),
-        scheduledAt: data.scheduledAt,
+        scheduledAt: scheduledUtc,
+        delayMs: delay,
         jobId: job.id,
       });
     } else if (wasScheduled && !willBeScheduled) {
+      
       post.status = PostStatus.DRAFT;
       post.scheduledAt = undefined;
 
@@ -170,6 +236,11 @@ export class PostService {
     return this.toPostResponse(post);
   }
 
+  /**
+   * @param postId - Post ID to delete
+   * @param userId - User deleting the post
+   * @param requestId - Request ID for logging
+   */
   async deletePost(postId: string, userId: string, requestId: string): Promise<void> {
     const post = await Post.findOne({ _id: postId, userId });
 
@@ -177,6 +248,7 @@ export class PostService {
       throw new NotFoundError('Post not found');
     }
 
+    
     if (post.jobId) {
       await queueService.removeJob(post.jobId);
       logger.info('Job removed for deleted post', {
@@ -188,9 +260,12 @@ export class PostService {
 
     await Post.findByIdAndDelete(postId);
 
-    logger.info('Post deleted', { requestId, postId });
+    logger.info('Post deleted successfully', { requestId, postId });
   }
 
+  /**
+   * @param postId - Post ID to publish
+   */
   async publishPost(postId: string): Promise<void> {
     const post = await Post.findById(postId);
 
@@ -198,23 +273,31 @@ export class PostService {
       throw new NotFoundError('Post not found');
     }
 
+    
     if (post.status === PostStatus.PUBLISHED) {
       logger.warn('Attempted to publish already published post', { postId });
       return;
     }
 
+    
     logger.info(`Publishing post ${postId} to ${post.platform}: ${post.content}`);
 
+    
     post.status = PostStatus.PUBLISHED;
-    post.publishedAt = new Date();
+    post.publishedAt = new Date(nowUtc());
     await post.save();
 
     logger.info('Post published successfully', {
       postId,
       platform: post.platform,
+      publishedAt: post.publishedAt.toISOString(),
     });
   }
 
+  /**
+   * @param post - Mongoose Post document
+   * @returns Clean post response object
+   */
   private toPostResponse(post: IPost): PostResponse {
     return {
       id: post._id.toString(),

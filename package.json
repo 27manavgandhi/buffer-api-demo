@@ -11,6 +11,7 @@
     "start:worker": "node dist/worker.js",
     "test": "jest --coverage --verbose",
     "test:watch": "jest --watch",
+    "test:timezone": "jest tests/timezone.test.ts --verbose",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "format": "prettier --write \"src/**/*.ts\""
@@ -20,11 +21,14 @@
     "jwt",
     "typescript",
     "express",
-    "mongodb"
+    "mongodb",
+    "timezone",
+    "temporal"
   ],
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@gobrand/tiempo": "^2.2.0",
     "bcryptjs": "^2.4.3",
     "bull": "^4.12.0",
     "cors": "^2.8.5",

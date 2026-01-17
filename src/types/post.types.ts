@@ -14,13 +14,15 @@ export enum PostStatus {
 export interface CreatePostDTO {
   content: string;
   platform: PostPlatform;
-  scheduledAt?: Date;
+  scheduledAt?: Date | string;
+  userTimezone?: string; 
 }
 
 export interface UpdatePostDTO {
   content?: string;
   platform?: PostPlatform;
-  scheduledAt?: Date;
+  scheduledAt?: Date | string;
+  userTimezone?: string; 
 }
 
 export interface PostResponse {
@@ -34,6 +36,7 @@ export interface PostResponse {
   createdAt: Date;
   updatedAt: Date;
 }
+
 
 export interface PaginatedPostsResponse {
   posts: PostResponse[];
