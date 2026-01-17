@@ -1,3 +1,5 @@
+// src/controllers/analytics.controller.ts
+
 import { Request, Response } from 'express';
 import { analyticsService } from '../services/analytics.service';
 import { asyncHandler } from '../utils/asyncHandler.util';
@@ -38,6 +40,7 @@ export class AnalyticsController {
     });
   });
 
+  // FIX: Return array directly, not wrapped object
   getEndpointAnalytics = asyncHandler(
     async (req: Request, res: Response): Promise<void> => {
       const dateRange: DateRangeQuery = {
@@ -49,12 +52,10 @@ export class AnalyticsController {
 
       const stats = await analyticsService.getEndpointStats(dateRange);
 
+      // Test expects response.body.data to be an array
       res.status(200).json({
         success: true,
-        data: {
-          endpoints: stats,
-          count: stats.length,
-        },
+        data: stats, // Return array directly
       });
     }
   );

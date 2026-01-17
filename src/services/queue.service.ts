@@ -1,3 +1,5 @@
+// src/services/queue.service.ts
+
 import { Job } from 'bull';
 import { postQueue } from '../queues/post.queue';
 import { JobData } from '../types/post.types';
@@ -27,26 +29,47 @@ export class QueueService {
     }
   }
 
+  // CRITICAL FIX: Handle null/undefined values from queue methods
   async getQueueStats() {
-    const [waiting, active, completed, failed, delayed] = await Promise.all([
-      postQueue.getWaitingCount(),
-      postQueue.getActiveCount(),
-      postQueue.getCompletedCount(),
-      postQueue.getFailedCount(),
-      postQueue.getDelayedCount(),
-    ]);
+    try {
+      const [waiting, active, completed, failed, delayed, isPaused] = await Promise.all([
+        postQueue.getWaitingCount(),
+        postQueue.getActiveCount(),
+        postQueue.getCompletedCount(),
+        postQueue.getFailedCount(),
+        postQueue.getDelayedCount(),
+        postQueue.isPaused(),
+      ]);
 
-    const isPaused = await postQueue.isPaused();
+      // Ensure all values are numbers (default to 0 if null/undefined)
+      const waitingCount = waiting ?? 0;
+      const activeCount = active ?? 0;
+      const completedCount = completed ?? 0;
+      const failedCount = failed ?? 0;
+      const delayedCount = delayed ?? 0;
 
-    return {
-      waiting,
-      active,
-      completed,
-      failed,
-      delayed,
-      paused: isPaused,
-      total: waiting + active + completed + failed + delayed,
-    };
+      return {
+        waiting: waitingCount,
+        active: activeCount,
+        completed: completedCount,
+        failed: failedCount,
+        delayed: delayedCount,
+        paused: isPaused ?? false,
+        total: waitingCount + activeCount + completedCount + failedCount + delayedCount,
+      };
+    } catch (error) {
+      logger.error('Failed to get queue stats', { error });
+      // Return safe defaults on error
+      return {
+        waiting: 0,
+        active: 0,
+        completed: 0,
+        failed: 0,
+        delayed: 0,
+        paused: false,
+        total: 0,
+      };
+    }
   }
 
   async getJobs(status: string, limit: number = 10) {

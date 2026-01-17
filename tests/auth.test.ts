@@ -1,8 +1,32 @@
+// tests/auth.test.ts
 import request from 'supertest';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
 import app from '../src/app';
 import { User } from '../src/models/User.model';
+
+// Mock Redis
+jest.mock('../src/config/redis', () => {
+  const mockRedis = {
+    multi: jest.fn().mockReturnThis(),
+    incr: jest.fn().mockReturnThis(),
+    ttl: jest.fn().mockReturnThis(),
+    exec: jest.fn().mockResolvedValue([
+      [null, 1],
+      [null, 3600],
+    ]),
+    expire: jest.fn().mockResolvedValue(1),
+    decr: jest.fn().mockResolvedValue(1),
+    del: jest.fn().mockResolvedValue(1),
+    get: jest.fn().mockResolvedValue(null),
+    on: jest.fn(),
+    disconnect: jest.fn(),
+    quit: jest.fn().mockResolvedValue('OK'),
+  };
+  return {
+    createRedisConnection: jest.fn(() => mockRedis),
+  };
+});
 
 let mongoServer: MongoMemoryServer;
 
@@ -15,6 +39,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await mongoose.disconnect();
   await mongoServer.stop();
+  await new Promise((resolve) => setTimeout(resolve, 500));
 });
 
 afterEach(async () => {
@@ -25,7 +50,7 @@ describe('Auth API', () => {
   describe('POST /api/v1/auth/register', () => {
     it('should register a new user successfully', async () => {
       const userData = {
-        email: 'test@example.com',
+        email: `test-${Date.now()}@example.com`,
         password: 'Password123',
       };
 
@@ -43,7 +68,7 @@ describe('Auth API', () => {
 
     it('should fail with duplicate email', async () => {
       const userData = {
-        email: 'duplicate@example.com',
+        email: `duplicate-${Date.now()}@example.com`,
         password: 'Password123',
       };
 
@@ -75,7 +100,7 @@ describe('Auth API', () => {
 
     it('should fail with weak password', async () => {
       const userData = {
-        email: 'test@example.com',
+        email: `test-${Date.now()}@example.com`,
         password: 'weak',
       };
 
@@ -90,9 +115,11 @@ describe('Auth API', () => {
   });
 
   describe('POST /api/v1/auth/login', () => {
+    const testEmail = `login-${Date.now()}@example.com`;
+
     beforeEach(async () => {
       await request(app).post('/api/v1/auth/register').send({
-        email: 'login@example.com',
+        email: testEmail,
         password: 'Password123',
       });
     });
@@ -101,13 +128,13 @@ describe('Auth API', () => {
       const response = await request(app)
         .post('/api/v1/auth/login')
         .send({
-          email: 'login@example.com',
+          email: testEmail,
           password: 'Password123',
         })
         .expect(200);
 
       expect(response.body.success).toBe(true);
-      expect(response.body.data.user.email).toBe('login@example.com');
+      expect(response.body.data.user.email).toBe(testEmail);
       expect(response.body.data.token).toBeDefined();
     });
 
@@ -115,7 +142,7 @@ describe('Auth API', () => {
       const response = await request(app)
         .post('/api/v1/auth/login')
         .send({
-          email: 'login@example.com',
+          email: testEmail,
           password: 'WrongPassword123',
         })
         .expect(401);
@@ -128,7 +155,7 @@ describe('Auth API', () => {
       const response = await request(app)
         .post('/api/v1/auth/login')
         .send({
-          email: 'nonexistent@example.com',
+          email: `nonexistent-${Date.now()}@example.com`,
           password: 'Password123',
         })
         .expect(401);
@@ -142,10 +169,19 @@ describe('Auth API', () => {
     let token: string;
 
     beforeEach(async () => {
-      const registerResponse = await request(app).post('/api/v1/auth/register').send({
-        email: `me-${Date.now()}@example.com`,
-        password: 'Password123',
-      });
+      const registerResponse = await request(app)
+        .post('/api/v1/auth/register')
+        .send({
+          email: `me-${Date.now()}@example.com`,
+          password: 'Password123',
+        })
+        .expect(201);
+
+      // Verify response structure
+      if (!registerResponse.body.success || !registerResponse.body.data) {
+        throw new Error(`Registration failed: ${JSON.stringify(registerResponse.body)}`);
+      }
+
       token = registerResponse.body.data.token;
     });
 

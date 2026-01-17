@@ -1,3 +1,4 @@
+// tests/post.test.ts
 import request from 'supertest';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
@@ -5,6 +6,29 @@ import app from '../src/app';
 import { Post } from '../src/models/Post.model';
 import { PostPlatform, PostStatus } from '../src/types/post.types';
 import { postQueue } from '../src/queues/post.queue';
+
+// Mock Redis
+jest.mock('../src/config/redis', () => {
+  const mockRedis = {
+    multi: jest.fn().mockReturnThis(),
+    incr: jest.fn().mockReturnThis(),
+    ttl: jest.fn().mockReturnThis(),
+    exec: jest.fn().mockResolvedValue([
+      [null, 1],
+      [null, 3600],
+    ]),
+    expire: jest.fn().mockResolvedValue(1),
+    decr: jest.fn().mockResolvedValue(1),
+    del: jest.fn().mockResolvedValue(1),
+    get: jest.fn().mockResolvedValue(null),
+    on: jest.fn(),
+    disconnect: jest.fn(),
+    quit: jest.fn().mockResolvedValue('OK'),
+  };
+  return {
+    createRedisConnection: jest.fn(() => mockRedis),
+  };
+});
 
 let mongoServer: MongoMemoryServer;
 let authToken: string;
@@ -15,19 +39,28 @@ beforeAll(async () => {
   const mongoUri = mongoServer.getUri();
   await mongoose.connect(mongoUri);
 
-  const response = await request(app).post('/api/v1/auth/register').send({
-    email: 'testuser@example.com',
-    password: 'Password123',
-  });
+  // Create user with unique email using timestamp
+  const response = await request(app)
+    .post('/api/v1/auth/register')
+    .send({
+      email: `testuser-${Date.now()}@example.com`,
+      password: 'Password123',
+    });
+
+  // Verify response structure before accessing
+  if (!response.body.success || !response.body.data) {
+    throw new Error(`Registration failed: ${JSON.stringify(response.body)}`);
+  }
 
   authToken = response.body.data.token;
   userId = response.body.data.user.id;
 });
 
 afterAll(async () => {
+  await postQueue.close();
   await mongoose.disconnect();
   await mongoServer.stop();
-  await postQueue.close();
+  await new Promise((resolve) => setTimeout(resolve, 500));
 });
 
 afterEach(async () => {

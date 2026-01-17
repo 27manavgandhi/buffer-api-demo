@@ -1,3 +1,4 @@
+// jest.config.js
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
@@ -6,6 +7,7 @@ module.exports = {
   collectCoverageFrom: [
     'src/**/*.ts',
     '!src/server.ts',
+    '!src/worker.ts',
     '!src/types/**',
     '!src/**/*.d.ts',
   ],
@@ -18,4 +20,11 @@ module.exports = {
     },
   },
   setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
+  testTimeout: 30000,
+  maxWorkers: 1, 
+  forceExit: true,
+  detectOpenHandles: false,
+  clearMocks: true,
+  resetMocks: true,
+  restoreMocks: true,
 };

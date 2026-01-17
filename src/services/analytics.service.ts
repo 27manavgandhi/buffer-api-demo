@@ -1,3 +1,6 @@
+// src/services/analytics.service.ts
+
+import mongoose from 'mongoose';
 import { ApiUsage } from '../models/ApiUsage.model';
 import {
   RecordAnalyticsDTO,
@@ -87,10 +90,16 @@ export class AnalyticsService {
 
   async getUserStats(userId: string, dateRange?: DateRangeQuery): Promise<UserStatsDTO> {
     try {
-      const matchStage = {
-        ...this.buildDateMatchStage(dateRange),
-        userId,
-      };
+      // CRITICAL FIX: Convert string userId to ObjectId for aggregation
+      const matchStage = this.buildDateMatchStage(dateRange);
+      
+      // Since ApiUsage.userId is ObjectId, we need to convert the string to ObjectId
+      matchStage.userId = new mongoose.Types.ObjectId(userId);
+
+      logger.info('getUserStats query', { 
+        userId: userId, 
+        matchStage: JSON.stringify(matchStage) 
+      });
 
       const [stats] = await ApiUsage.aggregate([
         { $match: matchStage },
@@ -116,17 +125,21 @@ export class AnalyticsService {
         },
       ]);
 
-      return {
-        userId,
-        totalRequests: stats.totalRequests[0]?.count || 0,
+      const result = {
+        userId: userId, // Return as string for API response
+        totalRequests: stats?.totalRequests?.[0]?.count || 0,
         avgResponseTime:
-          Math.round((stats.avgResponseTime[0]?.avg || 0) * 100) / 100,
-        topEndpoints: stats.topEndpoints || [],
+          Math.round((stats?.avgResponseTime?.[0]?.avg || 0) * 100) / 100,
+        topEndpoints: stats?.topEndpoints || [],
       };
+
+      logger.info('getUserStats result', result);
+
+      return result;
     } catch (error) {
       logger.error('Failed to get user stats', { error, userId });
       return {
-        userId,
+        userId: userId,
         totalRequests: 0,
         avgResponseTime: 0,
         topEndpoints: [],
