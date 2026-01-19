@@ -19,11 +19,11 @@ module.exports = {
       lines: 50,
     },
   },
-  // CRITICAL: Tell Jest to transform @gobrand/tiempo
+
   transformIgnorePatterns: [
     'node_modules/(?!(@gobrand/tiempo|@js-temporal/polyfill)/)',
   ],
-  // Transform ES modules from tiempo
+  
   transform: {
     '^.+\\.tsx?$': 'ts-jest',
     '^.+\\.jsx?$': 'ts-jest',
