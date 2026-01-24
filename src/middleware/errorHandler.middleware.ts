@@ -1,15 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
-import { config } from '../config/env';
+import { env } from '../config/env';
 import { AppError, ValidationError } from '../utils/errors.util';
 import { logger } from '../utils/logger.util';
-
-interface ErrorResponse {
-  success: false;
-  message: string;
-  requestId: string;
-  errors?: Record<string, string[]>;
-  stack?: string;
-}
 
 export const errorHandler = (
   err: Error,
@@ -17,26 +9,31 @@ export const errorHandler = (
   res: Response,
   _next: NextFunction
 ): void => {
-  const requestId = req.requestId;
+  
+  logger.error('Error occurred', {
+    error: err.message,
+    stack: err.stack,
+    requestId: req.requestId,
+    path: req.path,
+    method: req.method,
+  });
 
   if (err instanceof AppError) {
-    logger.warn('Operational error', {
-      requestId,
-      error: err.message,
-      statusCode: err.statusCode,
-    });
-
-    const response: ErrorResponse = {
+    const response: {
+      success: boolean;
+      message: string;
+      errors?: Array<{ field: string; message: string }>;
+      stack?: string;
+    } = {
       success: false,
       message: err.message,
-      requestId,
     };
 
     if (err instanceof ValidationError && err.errors) {
       response.errors = err.errors;
     }
 
-    if (config.isDevelopment) {
+    if (env.NODE_ENV === 'development') {
       response.stack = err.stack;
     }
 
@@ -44,19 +41,16 @@ export const errorHandler = (
     return;
   }
 
-  logger.error('Unexpected error', {
-    requestId,
-    error: err.message,
-    stack: err.stack,
-  });
-
-  const response: ErrorResponse = {
+  const response: {
+    success: boolean;
+    message: string;
+    stack?: string;
+  } = {
     success: false,
-    message: config.isProduction ? 'Internal server error' : err.message,
-    requestId,
+    message: env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message,
   };
 
-  if (config.isDevelopment) {
+  if (env.NODE_ENV === 'development') {
     response.stack = err.stack;
   }
 
