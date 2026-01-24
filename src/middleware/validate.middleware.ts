@@ -25,19 +25,20 @@ export const handleValidationErrors = (
   next: NextFunction
 ): void => {
   const errors = validationResult(req);
-
+  
   if (!errors.isEmpty()) {
-    const formattedErrors = errors.array().reduce(
-      (acc, error) => {
-        const field = error.type === 'field' ? error.path : 'unknown';
-        if (!acc[field]) {
-          acc[field] = [];
-        }
-        acc[field].push(error.msg);
-        return acc;
-      },
-      {} as Record<string, string[]>
-    );
+    const formattedErrors = errors.array().map((error) => {
+      if ('path' in error) {
+        return {
+          field: error.path,
+          message: error.msg,
+        };
+      }
+      return {
+        field: 'unknown',
+        message: error.msg,
+      };
+    });
 
     throw new ValidationError('Validation failed', formattedErrors);
   }
